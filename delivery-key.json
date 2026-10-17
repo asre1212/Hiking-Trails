@@ -1,0 +1,14 @@
+{
+  "type": "hiking-trails-public-key",
+  "version": 1,
+  "publicKey": {
+    "alg": "RSA-OAEP-256",
+    "e": "AQAB",
+    "ext": true,
+    "key_ops": [
+      "encrypt"
+    ],
+    "kty": "RSA",
+    "n": "pjEyaIw-Ln9L_2SEJEnk2UVvuJN871poFE5nL26AlymI48rxcJufc3aHGign6cUg7ZVhw66Y-vdQ_-oCmompbaXma2Yp5heIA_QifwrOxzo0RZEZ8a--jtaihk1xSyH-eUvqbic2BabPOWNxouqAgyln8pkOV39CeO7tqjcNUlxvuhs9alOvGg8LJ7yY0J59mF5lBKdsLYU6s4O_V828HbuuxRmB2FCOkiA24q_Ha900XcxU9wRZld4OF3Yp-xnKNhSsVyoFH4ntLjyEhr1bAmM_YocNlZekN11_MIHX0Ycw6FVp_r0NgIBwkQWHOjCUchW9n4y7eb630fnr0TezGQ8k82FcdUxb0DVSByGm5Rc4bDWaAfpGBKPahNJXYCwDY1kdTWOkG56ocYCKvcu6B4cFaRrhdv0ZIU_Y0cU2e4mv0WG0jZsbJnqN6iLwm251uU2SMHu_vRFEZz6Au0kzP0Ao7ypxSDbJ64ocJwdGSdcf5Rifpe4HynDRCy4V_2Vj"
+  }
+}
