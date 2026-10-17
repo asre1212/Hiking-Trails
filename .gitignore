@@ -1,0 +1,7 @@
+node_modules/
+*.tar.gz
+*.tgz
+*.backup.json
+trails.json
+plaintext*.json
+.env*
