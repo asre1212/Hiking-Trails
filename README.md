@@ -1,6 +1,6 @@
 # Hiking Trails
 
-A personal hiking review PWA: city-grouped reviews, half-star ratings out of five, descriptions, search, list/map views, Apple Maps directions, and encrypted phone-to-phone backups. No analytics or remote review database.
+A personal hiking review PWA: city-grouped reviews, quarter-star ratings out of five, descriptions, search, list/map views, Apple Maps directions, and encrypted phone-to-phone backups. No analytics or remote review database.
 
 **Open the app:** https://hiking-trails.savorymug256.chatgpt.site
 
@@ -18,13 +18,17 @@ The app shell and saved reviews work offline after the first successful load. Ma
 
 Backups use AES-256-GCM with a PBKDF2-SHA256 key (310,000 iterations, random 16-byte salt). Backups contain the journal, delivery private key, and import receipts, but **never the GitHub token**. Keep the backup password; there is no password recovery. Local IndexedDB uses the browser/device's protections; the app is not a password vault and does not add a separate app lock.
 
+## Direct import links
+
+An assistant can send an app link with a `#import=` fragment containing a base64url-encoded `{version:1,trails:[...]}` payload. Opening it removes the fragment from browser history and asks you to confirm the named reviews before the service worker saves them locally. A durable receipt prevents repeat imports. No review payload is sent to the host or committed to GitHub. The original link remains in whichever chat or message contains it; treat it as private. Links support up to 100 reviews and 100,000 encoded characters. This option needs no GitHub pairing.
+
 ## One-time entry-hook setup on your phone
 
-1. Settings → Export public delivery key. Add **only** that `delivery-key.json` file to this repository's root. Do not upload the encrypted backup or any private key.
-2. Create a [fine-grained GitHub token](https://github.com/settings/personal-access-tokens/new) limited to this repository, with **Contents: Read and write**. Enter it directly in the app's Settings → GitHub delivery inbox. The token stays on the device in IndexedDB; it is excluded from backups. Token expiry/revocation requires reconnection. The hosted app itself needs no GitHub credentials for normal journal use.
+1. Create a [fine-grained GitHub token](https://github.com/settings/personal-access-tokens/new) limited to this repository, with **Contents: Read and write**. Enter it directly in the app's Settings → GitHub delivery inbox.
+2. Tap **Connect this device**. The app generates the receiving key locally, publishes only `delivery-key.json` to GitHub, verifies write access, and saves the token locally. If another device is already paired, you must confirm before replacing its public key. Never upload a backup or private key. Token expiry/revocation requires reconnection.
 3. Ask your assistant to add hiking reviews using `ENTRY_HOOK.md`. It can read the public key, encrypt a batch, and create an `inbox/<unique-id>.json` file using the GitHub connector. The phone's service worker imports the batch, commits the local journal and receipt in one IndexedDB transaction, and then deletes the active GitHub file using its exact SHA.
 
-**Important limits:** iOS does not guarantee background synchronization. Deliveries check when the app opens, becomes visible, reconnects, or you tap Check deliveries; supported browsers can also retry via Background Sync. A service worker cannot receive arbitrary inbound HTTP requests from chat. Until you export the key and enter the repository token, remote delivery is unpaired, not silently active. Encrypted delivery files may also be imported manually without a GitHub token.
+**Important limits:** iOS does not guarantee background synchronization. Deliveries check when the app opens, becomes visible, reconnects, or you tap Check deliveries; supported browsers can also retry via Background Sync. A service worker cannot receive arbitrary inbound HTTP requests from chat. Until you connect the device with its repository token, remote delivery is unpaired, not silently active. Encrypted delivery files may also be imported manually without a GitHub token.
 
 GitHub stores the source code, the public key, and **temporary encrypted delivery envelopes**, not plaintext reviews. File deletion removes the active inbox entry, **not Git history, cached copies, or forks**. Full erasure from GitHub cannot be guaranteed by deleting a file. If you require no GitHub delivery data even temporarily, use local entry/manual encrypted delivery import instead. After receipt, the device holds the decrypted trail entries. Anyone who later obtains both a delivery private key and historical envelopes could decrypt them.
 

@@ -9,13 +9,13 @@ const {indexedDB}=await import(process.env.FAKE_INDEXEDDB_PATH||'fake-indexeddb'
 globalThis.indexedDB=indexedDB;
 await import('../dist/core.js');
 const T=globalThis.Trails;
-const trail={id:'test-trail',name:'Test trail',city:'Test city',rating:4.5,description:'A testing-only review.',lat:41.23,lon:-81.51,distance:2.5};
+const trail={id:'test-trail',name:'Test trail',city:'Test city',rating:4.75,description:'A testing-only review.',lat:41.23,lon:-81.51,distance:2.5};
 async function envelope(trails){
   const {publicKey}=await T.keys(),pub=await crypto.subtle.importKey('jwk',publicKey,{name:'RSA-OAEP',hash:'SHA-256'},false,['encrypt']),aes=await crypto.subtle.generateKey({name:'AES-GCM',length:256},true,['encrypt']),iv=crypto.getRandomValues(new Uint8Array(12));
   return {type:'hiking-trails-delivery',version:1,iv:T.b64(iv),key:T.b64(await crypto.subtle.encrypt({name:'RSA-OAEP'},pub,await crypto.subtle.exportKey('raw',aes))),data:T.b64(await crypto.subtle.encrypt({name:'AES-GCM',iv},aes,new TextEncoder().encode(JSON.stringify({version:1,trails}))))};
 }
 test('local-first journal and delivery invariants',async t=>{
-  await t.test('validates ratings, coordinates and distance',()=>{assert.equal(T.validate(trail).rating,4.5);for(const patch of [{rating:5.5},{rating:4.2},{lat:91},{lat:1,lon:null},{distance:-1},{distance:'oops'},{description:''}])assert.throws(()=>T.validate({...trail,...patch}));});
+  await t.test('validates ratings, coordinates and distance',()=>{assert.equal(T.validate(trail).rating,4.75);for(const patch of [{rating:5.5},{rating:4.2},{lat:91},{lat:1,lon:null},{distance:-1},{distance:'oops'},{description:''}])assert.throws(()=>T.validate({...trail,...patch}));});
   await t.test('persists and edits a trail',async()=>{await T.write('trails',[T.validate(trail)]);assert.equal((await T.get('trails',trail.id)).name,trail.name);await T.write('trails',[T.validate({...trail,description:'Edited'})]);assert.equal((await T.get('trails',trail.id)).description,'Edited');});
   await t.test('hybrid encryption round trip and tamper rejection',async()=>{const env=await envelope([trail]);assert.equal((await T.decryptDelivery(env)).trails[0].name,trail.name);const bytes=T.un64(env.data);bytes[0]^=1;await assert.rejects(T.decryptDelivery({...env,data:T.b64(bytes)}));});
   await t.test('all-or-nothing validation before receipt',async()=>{await assert.rejects(T.ingest({version:1,trails:[{...trail,id:'must-not-save'},{...trail,name:''}]},'invalid'));assert.equal(await T.get('trails','must-not-save'),undefined);assert.equal(await T.get('receipts','invalid'),undefined);});
@@ -37,3 +37,18 @@ test('local-first journal and delivery invariants',async t=>{
 });
 test('PWA shell assets and form bindings are complete',async()=>{const html=await readFile(new URL('../dist/index.html',import.meta.url),'utf8'),js=await readFile(new URL('../dist/app.js',import.meta.url),'utf8'),sw=await readFile(new URL('../dist/sw.js',import.meta.url),'utf8');const ids=new Set([...html.matchAll(/id="([^"]+)"/g)].map(m=>m[1]));for(const [,id]of js.matchAll(/\$\('([^']+)'\)/g))assert.ok(ids.has(id),'missing element '+id);for(const [,asset]of sw.matchAll(/'\.\/([^']+)'/g))await readFile(new URL('../dist/'+asset,import.meta.url));const manifest=JSON.parse(await readFile(new URL('../dist/manifest.webmanifest',import.meta.url),'utf8'));assert.equal(manifest.display,'standalone');for(const icon of manifest.icons)assert.ok((await readFile(new URL('../dist/'+icon.src,import.meta.url))).length>100);});
 test('map projection round-trip',async()=>{const context={globalThis:{}};vm.runInNewContext(await readFile(new URL('../dist/map.js',import.meta.url),'utf8'),context);const map=Object.create(context.globalThis.TrailMap.prototype);map.zoom=12;for(const [lat,lon]of [[41.23,-81.51],[0,0],[-33.8,151.2]]){const p=map.unproject(...map.project(lat,lon));assert.ok(Math.abs(p[0]-lat)<1e-8);assert.ok(Math.abs(p[1]-lon)<1e-8);}});
+test('service-worker local import returns a durable receipt result',async()=>{
+  const listeners={},context={importScripts:()=>{},self:{addEventListener:(name,fn)=>(listeners[name]||=[]).push(fn)},Trails:T};
+  vm.runInNewContext(await readFile(new URL('../dist/sw.js',import.meta.url),'utf8'),context);
+  const payload={version:1,trails:[{...trail,id:'link-import',rating:4.75}]};
+  async function send(){let response;const waits=[];const e={data:{type:'IMPORT_LOCAL',payload,receiptId:'test-link-receipt'},ports:[{postMessage:r=>response=r}],waitUntil:p=>waits.push(p)};for(const fn of listeners.message)fn(e);await Promise.all(waits);return response;}
+  assert.equal((await send()).count,1);assert.equal((await T.get('trails','link-import')).rating,4.75);assert.equal((await send()).count,0);
+});
+test('device pairing publishes only its public key and blocks silent replacement',async()=>{
+  const config={repo:'test/repo',branch:'main',token:'local-test-token'};let putBody;
+  globalThis.fetch=async(url,o)=>{if(o.method==='PUT'){putBody=JSON.parse(o.body);return Response.json({commit:{sha:'test'}});}return new Response('{}',{status:404});};
+  assert.equal((await T.pairInbox(config)).paired,true);const published=JSON.parse(new TextDecoder().decode(T.un64(putBody.content)));assert.equal(published.type,'hiking-trails-public-key');assert.equal(published.publicKey.d,undefined);assert.ok(!JSON.stringify(putBody).includes(config.token));
+  globalThis.fetch=async(url,o)=>{if(o.method==='PUT')throw Error('must not overwrite');return Response.json({sha:'other',content:T.b64(new TextEncoder().encode(JSON.stringify({publicKey:{n:'another-phone',e:'AQAB'}})))});};
+  await assert.rejects(T.pairInbox(config),e=>e.code==='OTHER_DEVICE');
+  globalThis.fetch=async()=>new Response('{}',{status:403});await assert.rejects(T.pairInbox(config),/GitHub 403/);
+});

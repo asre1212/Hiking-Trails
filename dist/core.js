@@ -19,7 +19,7 @@ globalThis.Trails = (() => {
     if(!x || typeof x!=='object') throw Error('Invalid trail.');
     const str=(v,max)=>typeof v==='string'?v.trim().slice(0,max):'';
     const name=str(x.name,160),city=str(x.city,120),description=str(x.description,2000),rating=Number(x.rating);
-    if(!name||!city||!description||!Number.isFinite(rating)||rating<0||rating>5||rating*2%1) throw Error('Every trail needs a name, city, description and rating from 0 to 5 in half-star steps.');
+    if(!name||!city||!description||!Number.isFinite(rating)||rating<0||rating>5||rating*4%1) throw Error('Every trail needs a name, city, description and rating from 0 to 5 in quarter-star steps.');
     const lat=x.lat==null||x.lat===''?null:Number(x.lat),lon=x.lon==null||x.lon===''?null:Number(x.lon);
     if((lat===null)!==(lon===null)||lat!==null&&(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>85.0511||Math.abs(lon)>180)) throw Error('Provide both coordinates, within latitude ±85 and longitude ±180.');
     const id=str(x.id,120)||crypto.randomUUID();
@@ -68,6 +68,18 @@ globalThis.Trails = (() => {
     const d=await db();await new Promise((res,rej)=>{const t=d.transaction(['trails','settings','receipts'],'readwrite');for(const x of records)t.objectStore('trails').put(x);t.objectStore('settings').put({...p.keys,id:'keys'});for(const x of p.receipts)if(typeof x.id==='string')t.objectStore('receipts').put({id:x.id,at:x.at});t.oncomplete=res;t.onabort=()=>rej(t.error);t.onerror=()=>{};});return records.length;
   }
   let syncing;
+  async function pairInbox(config,replace=false){
+    if(!/^[\w.-]+\/[\w.-]+$/.test(config.repo)||!config.branch||config.branch.length>100||!config.token)throw Error('Enter a valid repository, branch and token.');
+    const publicKey=(await keys()).publicKey,url=`https://api.github.com/repos/${config.repo}/contents/delivery-key.json`,headers={Authorization:`Bearer ${config.token}`,Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'};
+    const existing=await fetch(url+'?ref='+encodeURIComponent(config.branch),{cache:'no-store',headers});let sha;
+    if(existing.ok){const file=await existing.json();sha=file.sha;let other;try{other=JSON.parse(dec.decode(un64(file.content.replace(/\s/g,''))));}catch{throw Error('Existing delivery-key.json is invalid. Review it before pairing.');}
+      if(other.publicKey?.n!==publicKey.n||other.publicKey?.e!==publicKey.e){if(!replace){const e=Error('A different receiving device is paired.');e.code='OTHER_DEVICE';throw e;}}
+    }else if(existing.status!==404)throw Error(`GitHub ${existing.status}. Check the token and repository access.`);
+    const content=b64(enc.encode(JSON.stringify({type:'hiking-trails-public-key',version:1,publicKey},null,2)+'\n'));
+    const result=await fetch(url,{method:'PUT',cache:'no-store',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({message:'Pair hiking delivery public key',content,branch:config.branch,...(sha?{sha}:{})})});
+    if(!result.ok)throw Error(`GitHub ${result.status}. Pairing needs Contents: Read and write on this repository; protected branches may block it.`);
+    return {paired:true};
+  }
   async function syncInbox() { return syncing ||= syncImpl().finally(()=>syncing=null); }
   async function syncImpl() {
     const c=await get('settings','github');if(!c?.token)return {message:'Set up GitHub delivery in Settings.',count:0};
@@ -93,5 +105,5 @@ globalThis.Trails = (() => {
     }
     return {count,removed,errors,message:`${count} trail${count===1?'':'s'} received · ${removed} deliveries cleared${errors.length?' · '+errors.length+' need retry':''}.`};
   }
-  return {db,all,get,write,remove,validate,keys,ingest,decryptDelivery,backup,restore,syncInbox,b64,un64};
+  return {db,all,get,write,remove,validate,keys,ingest,decryptDelivery,backup,restore,pairInbox,syncInbox,b64,un64};
 })();
