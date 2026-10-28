@@ -51,3 +51,7 @@ Run logic tests with Node 20+ and `fake-indexeddb` available: `FAKE_INDEXEDDB_PA
 - [GitHub: Removing sensitive data](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository) — file deletion is not history erasure.
 
 Verified against these three primary references on October 17, 2026. Map attribution: © OpenStreetMap contributors. No third-party JavaScript or fonts are loaded.
+
+## Want to go
+
+Use the Status selector to save a future hike as **Want to go**, without a rating. Filter All trails, Want to go, or Visited in list and map views. Existing entries remain Visited with their original ratings. Edit the same entry after a visit and select Visited, then add your own rating. Status is retained in encrypted backups and deliveries. Wishlist deliveries use payload version 2 so an older app safely retains them until updated; envelope encryption remains version 1.

@@ -52,3 +52,16 @@ test('device pairing publishes only its public key and blocks silent replacement
   await assert.rejects(T.pairInbox(config),e=>e.code==='OTHER_DEVICE');
   globalThis.fetch=async()=>new Response('{}',{status:403});await assert.rejects(T.pairInbox(config),/GitHub 403/);
 });
+
+test('wishlist preserves unrated status, legacy reviews, backup and replay safety',async()=>{
+  const wanted={id:'wishlist-test',name:'Test future trail',city:'Test city',description:'Want to go.',status:'want-to-go',rating:null};
+  assert.equal(T.validate(wanted).rating,null);assert.equal(T.validate(wanted).difficulty,'');
+  assert.equal(T.validate(trail).status,'visited');assert.equal(T.validate(trail).rating,4.75);
+  assert.throws(()=>T.validate({...wanted,status:'visited'}));assert.throws(()=>T.validate({...wanted,status:'unknown'}));
+  assert.equal(await T.ingest({version:2,trails:[wanted]},'wishlist-receipt'),1);
+  const back=await T.backup('wishlist-password');await T.remove('trails',wanted.id);await T.restore(back,'wishlist-password');
+  assert.equal((await T.get('trails',wanted.id)).rating,null);assert.equal((await T.get('trails',wanted.id)).status,'want-to-go');
+  await T.write('trails',[T.validate({...wanted,status:'visited',rating:4.25,description:'User visited and edited.'})]);
+  assert.equal(await T.ingest({version:2,trails:[wanted]},'wishlist-receipt'),0);
+  assert.equal((await T.get('trails',wanted.id)).rating,4.25);
+});

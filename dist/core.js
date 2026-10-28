@@ -18,14 +18,15 @@ globalThis.Trails = (() => {
   function validate(x) {
     if(!x || typeof x!=='object') throw Error('Invalid trail.');
     const str=(v,max)=>typeof v==='string'?v.trim().slice(0,max):'';
-    const name=str(x.name,160),city=str(x.city,120),description=str(x.description,2000),rating=Number(x.rating);
-    if(!name||!city||!description||!Number.isFinite(rating)||rating<0||rating>5||rating*4%1) throw Error('Every trail needs a name, city, description and rating from 0 to 5 in quarter-star steps.');
+    const name=str(x.name,160),city=str(x.city,120),description=str(x.description,2000),status=x.status??'visited',rating=x.rating==null||x.rating===''?null:Number(x.rating);
+    if(!['visited','want-to-go'].includes(status))throw Error('Choose Visited or Want to go.');
+    if(!name||!city||!description||(status==='visited'&&rating===null)||(rating!==null&&(!Number.isFinite(rating)||rating<0||rating>5||rating*4%1))) throw Error('Every trail needs a name, city and description. Visited trails need a rating from 0 to 5 in quarter-star steps.');
     const lat=x.lat==null||x.lat===''?null:Number(x.lat),lon=x.lon==null||x.lon===''?null:Number(x.lon);
     if((lat===null)!==(lon===null)||lat!==null&&(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>85.0511||Math.abs(lon)>180)) throw Error('Provide both coordinates, within latitude ±85 and longitude ±180.');
     const id=str(x.id,120)||crypto.randomUUID();
     const distance=x.distance==null||x.distance===''?null:Number(x.distance);
     if(distance!==null&&(!Number.isFinite(distance)||distance<0||distance>10000))throw Error('Distance must be between 0 and 10,000 miles.');
-    return {id,name,city,description,rating,lat,lon,address:str(x.address,300),difficulty:['Easy','Moderate','Hard'].includes(x.difficulty)?x.difficulty:'Moderate',distance,updatedAt:typeof x.updatedAt==='string'&&Number.isFinite(Date.parse(x.updatedAt))?x.updatedAt:new Date().toISOString()};
+    return {id,name,city,description,status,rating,lat,lon,address:str(x.address,300),difficulty:['Easy','Moderate','Hard'].includes(x.difficulty)?x.difficulty:'',distance,updatedAt:typeof x.updatedAt==='string'&&Number.isFinite(Date.parse(x.updatedAt))?x.updatedAt:new Date().toISOString()};
   }
   async function keys() {
     let k=await get('settings','keys');
@@ -41,7 +42,7 @@ globalThis.Trails = (() => {
     return JSON.parse(dec.decode(plain));
   }
   async function ingest(payload,receiptId) {
-    if(payload?.version!==1||!Array.isArray(payload.trails)||!payload.trails.length||payload.trails.length>500) throw Error('Invalid delivery (1–500 trails required).');
+    if(![1,2].includes(payload?.version)||!Array.isArray(payload.trails)||!payload.trails.length||payload.trails.length>500) throw Error('Invalid delivery (1–500 trails required).');
     const trails=payload.trails.map(validate),d=await db();
     return new Promise((res,rej)=>{
       const t=d.transaction(['trails','receipts'],'readwrite'),receipts=t.objectStore('receipts'),r=receipts.get(receiptId);let count=0;
@@ -55,14 +56,14 @@ globalThis.Trails = (() => {
   }
   async function backup(password) {
     if(password.length<8)throw Error('Use a backup password of at least 8 characters.');
-    const payload={type:'hiking-trails-backup',version:1,createdAt:new Date().toISOString(),trails:await all('trails'),keys:await keys(),receipts:await all('receipts')};
+    const payload={type:'hiking-trails-backup',version:2,createdAt:new Date().toISOString(),trails:await all('trails'),keys:await keys(),receipts:await all('receipts')};
     const salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12)),key=await passwordKey(password,salt,['encrypt']);
     return {type:'hiking-trails-encrypted-backup',version:1,salt:b64(salt),iv:b64(iv),data:b64(await crypto.subtle.encrypt({name:'AES-GCM',iv},key,enc.encode(JSON.stringify(payload))))};
   }
   async function restore(file,password) {
     if(file?.type!=='hiking-trails-encrypted-backup'||file.version!==1)throw Error('Select a Hiking Trails encrypted backup.');
     let p;try{const k=await passwordKey(password,un64(file.salt),['decrypt']);p=JSON.parse(dec.decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:un64(file.iv)},k,un64(file.data))));}catch{throw Error('Incorrect password or damaged backup.');}
-    if(p.type!=='hiking-trails-backup'||p.version!==1||!Array.isArray(p.trails)||p.trails.length>50000||!Array.isArray(p.receipts)||!p.keys?.privateKey)throw Error('Invalid backup contents.');
+    if(p.type!=='hiking-trails-backup'||![1,2].includes(p.version)||!Array.isArray(p.trails)||p.trails.length>50000||!Array.isArray(p.receipts)||!p.keys?.privateKey)throw Error('Invalid backup contents.');
     const records=p.trails.map(validate);
     await crypto.subtle.importKey('jwk',p.keys.privateKey,{name:'RSA-OAEP',hash:'SHA-256'},false,['decrypt']);
     const d=await db();await new Promise((res,rej)=>{const t=d.transaction(['trails','settings','receipts'],'readwrite');for(const x of records)t.objectStore('trails').put(x);t.objectStore('settings').put({...p.keys,id:'keys'});for(const x of p.receipts)if(typeof x.id==='string')t.objectStore('receipts').put({id:x.id,at:x.at});t.oncomplete=res;t.onabort=()=>rej(t.error);t.onerror=()=>{};});return records.length;

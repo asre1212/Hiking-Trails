@@ -11,7 +11,8 @@ try{
   if(keyFile.type!=='hiking-trails-public-key'||keyFile.version!==1||keyFile.publicKey?.d)throw Error('Use the public delivery key exported from the app.');
   const input=JSON.parse(await readFile(inputPath,'utf8'));
   if(input.version!==1||!Array.isArray(input.trails)||!input.trails.length||input.trails.length>500)throw Error('Input must be {version:1,trails:[...]} with 1–500 trails.');
-  const payload={version:1,trails:input.trails.map(Trails.validate)};
+  const trails=input.trails.map(Trails.validate);
+  const payload={version:trails.some(t=>t.status==='want-to-go')?2:1,trails};
   const publicKey=await crypto.subtle.importKey('jwk',keyFile.publicKey,{name:'RSA-OAEP',hash:'SHA-256'},false,['encrypt']);
   const aes=await crypto.subtle.generateKey({name:'AES-GCM',length:256},true,['encrypt']),iv=crypto.getRandomValues(new Uint8Array(12));
   const data=await crypto.subtle.encrypt({name:'AES-GCM',iv},aes,new TextEncoder().encode(JSON.stringify(payload)));

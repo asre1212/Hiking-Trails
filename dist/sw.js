@@ -1,5 +1,5 @@
 importScripts('./core.js');
-const CACHE='hiking-trails-v2';
+const CACHE='hiking-trails-v3';
 const SHELL=['./','./index.html','./style.css','./app.js','./core.js','./map.js','./manifest.webmanifest','./icon.svg','./icon-192.png','./icon-512.png'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)).then(()=>self.skipWaiting()));});
 self.addEventListener('activate',e=>{e.waitUntil((async()=>{const keys=await caches.keys();await Promise.all(keys.filter(k=>k.startsWith('hiking-trails-')&&k!==CACHE).map(k=>caches.delete(k)));await self.clients.claim();for(const client of await clients.matchAll({type:'window'}))if(new URL(client.url).hash.startsWith('#import='))await client.navigate(client.url);})());});
