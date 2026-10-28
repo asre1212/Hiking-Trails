@@ -19,7 +19,7 @@ async function checkAppUpdate(manual=false){
   if(!navigator.onLine){if(manual)$('updateStatus').textContent='Offline. Your saved trails are safe; updates will retry online.';return;}
   if(!registration){if(manual)$('updateStatus').textContent='App updates are unavailable in this browser.';return;}
   updateChecking=true;
-  try{if(manual)$('updateStatus').textContent='Checking for app updates…';await registration.update();activateReadyUpdate();if(manual&&!registration.waiting&&!registration.installing)$('updateStatus').textContent='App is up to date (version 4).';}
+  try{if(manual)$('updateStatus').textContent='Checking for app updates…';await registration.update();activateReadyUpdate();if(manual&&!registration.waiting&&!registration.installing)$('updateStatus').textContent='App is up to date (version 5).';}
   catch{if(manual)$('updateStatus').textContent='Could not check now. Your saved trails are unchanged; updates will retry.';}
   finally{updateChecking=false;}
 }
