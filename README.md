@@ -55,3 +55,7 @@ Verified against these three primary references on October 17, 2026. Map attribu
 ## Want to go
 
 Use the Status selector to save a future hike as **Want to go**, without a rating. Filter All trails, Want to go, or Visited in list and map views. Existing entries remain Visited with their original ratings. Edit the same entry after a visit and select Visited, then add your own rating. Status is retained in encrypted backups and deliveries. Wishlist deliveries use payload version 2 so an older app safely retains them until updated; envelope encryption remains version 1.
+
+## Automatic shell updates
+
+Version 4 checks for updates on opening, returning online/visible, and every 30 minutes while open. Settings → Check for app updates provides a manual check and version. New workers activate after all open forms close, then reload once. Offline failures leave cached code and IndexedDB intact. Routine same-origin upgrades never require export/import. An origin/domain change is different: browser security isolates the local journal; use encrypted backup/restore once if the hosting origin changes. The GitHub inbox delivers encrypted records, not executable app updates.

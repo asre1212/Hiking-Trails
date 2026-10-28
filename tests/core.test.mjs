@@ -65,3 +65,27 @@ test('wishlist preserves unrated status, legacy reviews, backup and replay safet
   assert.equal(await T.ingest({version:2,trails:[wanted]},'wishlist-receipt'),0);
   assert.equal((await T.get('trails',wanted.id)).rating,4.25);
 });
+
+test('automatic updates defer activation for forms and retry safely offline',async()=>{
+  const js=await readFile(new URL('../dist/app.js',import.meta.url),'utf8');
+  const prefix=js.slice(0,js.indexOf('const map=new TrailMap'));
+  let open=true,updates=0,activations=0,reloads=0;
+  const els=new Map(),dialogs=[{addEventListener(){}}],listeners={};
+  const context={document:{getElementById:id=>{if(!els.has(id))els.set(id,{});return els.get(id);},querySelector:()=>open?{}:null,querySelectorAll:()=>dialogs},navigator:{onLine:true,serviceWorker:{controller:{},addEventListener:(n,f)=>listeners[n]=f}},location:{reload:()=>reloads++}};
+  vm.createContext(context);vm.runInContext(prefix,context);
+  context.mockRegistration={waiting:{postMessage:m=>{assert.equal(m.type,'ACTIVATE_UPDATE');activations++;}},update:async()=>updates++};
+  vm.runInContext('registration=mockRegistration',context);
+  await vm.runInContext('checkAppUpdate(true)',context);assert.equal(updates,1);assert.equal(activations,0);
+  open=false;vm.runInContext('activateReadyUpdate()',context);assert.equal(activations,1);
+  listeners.controllerchange();listeners.controllerchange();assert.equal(reloads,1);
+  context.navigator.onLine=false;await vm.runInContext('checkAppUpdate(true)',context);assert.equal(updates,1);assert.match(els.get('updateStatus').textContent,/Offline/);
+  context.navigator.onLine=true;context.mockRegistration.waiting=null;context.mockRegistration.update=async()=>{throw Error('network');};await vm.runInContext('checkAppUpdate(true)',context);assert.match(els.get('updateStatus').textContent,/unchanged/);
+});
+
+test('new worker only activates early on explicit safe activation message',async()=>{
+  const listeners={},waits=[];let skip=0;
+  const context={importScripts(){},self:{addEventListener:(n,f)=>(listeners[n]||=[]).push(f),skipWaiting:async()=>skip++},caches:{open:async()=>({addAll:async()=>{}})}};
+  vm.runInNewContext(await readFile(new URL('../dist/sw.js',import.meta.url),'utf8'),context);
+  for(const f of listeners.install)f({waitUntil:p=>waits.push(p)});await Promise.all(waits);assert.equal(skip,0);
+  for(const f of listeners.message)f({data:{type:'ACTIVATE_UPDATE'},waitUntil:p=>waits.push(p)});await Promise.all(waits);assert.equal(skip,1);
+});

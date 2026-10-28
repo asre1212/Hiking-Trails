@@ -1,6 +1,36 @@
 /* All review data remains in this origin's IndexedDB on the user's device. */
 const $=id=>document.getElementById(id),escapeHTML=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let trails=[],view='list',registration,installPrompt,syncing=false;
+// Only the static shell changes; IndexedDB is never reset by an update.
+let updatePending=false,updateReloading=false,updateChecking=false;
+function activateReadyUpdate(){
+  if(!registration?.waiting)return;
+  updatePending=true;
+  $('updateStatus').textContent='Update ready. It will apply after you close open forms.';
+  if(document.querySelector('dialog[open]'))return;
+  registration.waiting.postMessage({type:'ACTIVATE_UPDATE'});
+}
+function watchWorker(worker){
+  if(!worker)return;
+  worker.addEventListener('statechange',()=>{if(worker.state==='installed'&&navigator.serviceWorker.controller)activateReadyUpdate();});
+}
+async function checkAppUpdate(manual=false){
+  if(updateChecking)return;
+  if(!navigator.onLine){if(manual)$('updateStatus').textContent='Offline. Your saved trails are safe; updates will retry online.';return;}
+  if(!registration){if(manual)$('updateStatus').textContent='App updates are unavailable in this browser.';return;}
+  updateChecking=true;
+  try{if(manual)$('updateStatus').textContent='Checking for app updates…';await registration.update();activateReadyUpdate();if(manual&&!registration.waiting&&!registration.installing)$('updateStatus').textContent='App is up to date (version 4).';}
+  catch{if(manual)$('updateStatus').textContent='Could not check now. Your saved trails are unchanged; updates will retry.';}
+  finally{updateChecking=false;}
+}
+$('updateBtn').onclick=()=>checkAppUpdate(true);
+for(const dialog of document.querySelectorAll('dialog'))dialog.addEventListener('close',activateReadyUpdate);
+if('serviceWorker'in navigator)navigator.serviceWorker.addEventListener('controllerchange',()=>{
+  if(!updatePending||updateReloading)return;
+  if(document.querySelector('dialog[open]')){const resume=()=>{if(!document.querySelector('dialog[open]')&&!updateReloading){updateReloading=true;location.reload();}};for(const d of document.querySelectorAll('dialog'))d.addEventListener('close',resume,{once:true});return;}
+  updateReloading=true;location.reload();
+});
+
 const map=new TrailMap($('map'),t=>{$('mapDetail').replaceChildren(card(t));});
 function status(s){$('status').textContent=s;}
 function settingsStatus(s){$('settingsStatus').textContent=s;}
@@ -49,7 +79,9 @@ function download(name,data){const url=URL.createObjectURL(new Blob([JSON.string
 async function updateStorage(){const persist=await navigator.storage?.persisted?.().catch(()=>false);$('storageStatus').textContent=persist?'Persistent storage granted. Still keep backups.':'Browser-managed local storage. Keep regular backups.';const d=await Trails.get('settings','lastBackup');$('backupDate').textContent=d?'Last backup exported: '+new Date(d.at).toLocaleString():'No backup exported on this device yet.';}
 $('settingsBtn').onclick=async()=>{$('settings').showModal();try{const c=await Trails.get('settings','github');$('repo').value=c?.repo||'asre1212/Hiking-Trails';$('branch').value=c?.branch||'main';$('token').value='';$('token').placeholder=c?.token?'Token saved locally; leave blank to keep':'Contents: Read and write · only this repository';await updateStorage();}catch(e){settingsStatus(e.message);}};
 $('persistBtn').onclick=async()=>{try{const ok=await navigator.storage?.persist?.();settingsStatus(ok?'Persistent storage enabled.':'Browser did not grant persistence. Keep backups.');await updateStorage();}catch(e){settingsStatus(e.message);}};
-$('backupBtn').onclick=async()=>{const b=$('backupBtn');b.disabled=true;try{const data=await Trails.backup($('backupPassword').value);download(`hiking-trails-${new Date().toISOString().slice(0,10)}.json`,data);await Trails.write('settings',[{id:'lastBackup',at:new Date().toISOString()}]);$('backupPassword').value='';settingsStatus('Backup exported. Keep the file and password for your new phone.');await updateStorage();}catch(e){settingsStatus(e.message);}finally{b.disabled=false;}};
+let preparedBackup;
+$('saveBackupBtn').onclick=async()=>{if(!preparedBackup)return;try{const file=preparedBackup;if(navigator.canShare?.({files:[file]})){await navigator.share({files:[file],title:'Hiking Trails encrypted backup'});settingsStatus('Backup shared. Confirm it is saved in Files and keep your password.');}else{const url=URL.createObjectURL(file),a=document.createElement('a');a.href=url;a.download=file.name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),300000);settingsStatus('Backup download requested. Confirm the file is saved and keep your password.');}await Trails.write('settings',[{id:'lastBackup',at:new Date().toISOString()}]);await updateStorage();}catch(e){settingsStatus(e.name==='AbortError'?'Save cancelled. Your prepared backup is still ready; tap Save / share again.':'Could not save: '+e.message);}};
+$('backupBtn').onclick=async()=>{const b=$('backupBtn');b.disabled=true;try{const data=await Trails.backup($('backupPassword').value);preparedBackup=new File([JSON.stringify(data,null,2)],`hiking-trails-${new Date().toISOString().slice(0,10)}.json`,{type:'application/json'});$('saveBackupBtn').hidden=false;$('backupPassword').value='';settingsStatus('Encrypted backup ready. Tap Save / share backup file, then choose Save to Files. Keep your password.');await updateStorage();}catch(e){settingsStatus(e.message);}finally{b.disabled=false;}};
 $('restoreBtn').onclick=()=>$('backupFile').click();
 $('backupFile').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(f.size>30000000)throw Error('Backup is too large.');if(!$('backupPassword').value)throw Error('Enter the backup password before importing.');if(!confirm('Merge backup trails by ID and restore its delivery identity? Matching trail IDs are replaced. Reconnect GitHub afterward.'))return;const n=await Trails.restore(JSON.parse(await f.text()),$('backupPassword').value);$('backupPassword').value='';await Trails.remove('settings','github');$('token').value='';await reload();settingsStatus(`${n} trails restored. Reconnect GitHub on this phone; disconnect it on your old phone.`);}catch(e){settingsStatus(e.message);}finally{e.target.value='';}};
 $('githubForm').onsubmit=async e=>{e.preventDefault();try{const old=await Trails.get('settings','github'),token=$('token').value.trim()||old?.token;if(!token)throw Error('Enter a fine-grained token scoped to this repository.');const config={id:'github',repo:$('repo').value.trim(),branch:$('branch').value.trim(),token};settingsStatus('Pairing this device with GitHub…');try{await Trails.pairInbox(config);}catch(err){if(err.code!=='OTHER_DEVICE')throw err;if(!confirm('Another device is paired. Replace its public key with this device? Disconnect the old phone first. Existing queued deliveries for the old key will not decrypt here.'))return;await Trails.pairInbox(config,true);}await Trails.write('settings',[config]);$('token').value='';settingsStatus('Device paired. Checking encrypted deliveries…');await sync();settingsStatus($('status').textContent);}catch(e){settingsStatus(e.message);}};
@@ -59,6 +91,6 @@ $('deliveryBtn').onclick=()=>$('deliveryFile').click();$('deliveryFile').onchang
 async function sync(){if(syncing)return;syncing=true;$('syncBtn').disabled=true;status('Checking encrypted deliveries…');try{let result;const worker=registration?.active;if(worker){const channel=new MessageChannel();result=await new Promise((res,rej)=>{const timer=setTimeout(()=>rej(Error('Delivery check is still running. Reopen the app or check again.')),90000);channel.port1.onmessage=e=>{clearTimeout(timer);e.data.error?rej(Error(e.data.error)):res(e.data.result);};worker.postMessage({type:'SYNC_INBOX'},[channel.port2]);});}else result=await Trails.syncInbox();status(result.message+(result.errors?.length?'\n'+result.errors.join('\n'):''));await reload();if(result.errors?.length)await registration?.sync?.register('hiking-inbox').catch(()=>{});}catch(e){status(e.message);await registration?.sync?.register('hiking-inbox').catch(()=>{});}finally{syncing=false;$('syncBtn').disabled=false;}}
 $('syncBtn').onclick=sync;
 function online(){ $('onlineStatus').textContent=navigator.onLine?'Online':'Offline';if(!navigator.onLine)status('Offline. Your saved reviews are available; maps and delivery need internet.');}
-window.addEventListener('online',()=>{online();sync();});window.addEventListener('offline',online);document.addEventListener('visibilitychange',()=>{if(!document.hidden)sync();});
+window.addEventListener('online',()=>{online();sync();checkAppUpdate();});window.addEventListener('offline',online);document.addEventListener('visibilitychange',()=>{if(!document.hidden){sync();checkAppUpdate();}});
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installPrompt=e;$('installBtn').hidden=false;});$('installBtn').onclick=async()=>{if(installPrompt){await installPrompt.prompt();installPrompt=null;$('installBtn').hidden=true;}};
-(async()=>{try{await reload();online();if('serviceWorker'in navigator){try{registration=await navigator.serviceWorker.register('./sw.js');const installing=registration.installing||registration.waiting;if(installing&&installing.state!=='activated')await new Promise(resolve=>{installing.addEventListener('statechange',()=>{if(['activated','redundant'].includes(installing.state))resolve();});});registration=await navigator.serviceWorker.ready;navigator.serviceWorker.addEventListener('message',async e=>{if(e.data?.type==='SYNC_RESULT'){await reload();if(!syncing)status(e.data.result.message);}});}catch{status('Offline cache unavailable in this browser. Local reviews still save.');}}await importLink();if((await Trails.get('settings','github'))?.token)await sync();}catch(e){status('Local storage could not open. Enable website storage and reload. '+e.message);$('addBtn').disabled=true;}})();
+(async()=>{try{await reload();online();if('serviceWorker'in navigator){try{registration=await navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'});registration.addEventListener('updatefound',()=>watchWorker(registration.installing));watchWorker(registration.installing);activateReadyUpdate();const installing=registration.installing;if(installing&&!navigator.serviceWorker.controller&&installing.state!=='activated')await new Promise(resolve=>{installing.addEventListener('statechange',()=>{if(['activated','redundant'].includes(installing.state))resolve();});});registration=await navigator.serviceWorker.ready;navigator.serviceWorker.addEventListener('message',async e=>{if(e.data?.type==='SYNC_RESULT'){await reload();if(!syncing)status(e.data.result.message);}});}catch{status('Offline cache unavailable in this browser. Local reviews still save.');}}await checkAppUpdate();setInterval(()=>{if(!document.hidden)checkAppUpdate();},30*60*1000);await importLink();if((await Trails.get('settings','github'))?.token)await sync();}catch(e){status('Local storage could not open. Enable website storage and reload. '+e.message);$('addBtn').disabled=true;}})();
